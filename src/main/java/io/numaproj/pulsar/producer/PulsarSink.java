@@ -1,4 +1,4 @@
-package io.numaproj.pulsar.numaflow;
+package io.numaproj.pulsar.producer;
 
 import io.numaproj.numaflow.sinker.Datum;
 import io.numaproj.numaflow.sinker.DatumIterator;
@@ -11,6 +11,7 @@ import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
@@ -20,7 +21,6 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @Slf4j
-@Component
 public class PulsarSink extends Sinker {
 
     @Autowired
