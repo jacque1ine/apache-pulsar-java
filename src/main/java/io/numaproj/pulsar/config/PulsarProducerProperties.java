@@ -10,8 +10,8 @@ import java.util.Map;
 
 @Getter
 @Setter
-@Configuration
-@ConfigurationProperties(prefix = "spring.pulsar.producer")
+// @Configuration
+// @ConfigurationProperties(prefix = "spring.pulsar.producer")
 public class PulsarProducerProperties {
     private Map<String, Object> producerConfig = new HashMap<>(); // Default to an empty map
 }

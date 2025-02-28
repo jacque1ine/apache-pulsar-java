@@ -10,8 +10,8 @@ import java.util.Map;
 
 @Getter
 @Setter
-@Configuration
-@ConfigurationProperties(prefix = "spring.pulsar.client")
+// @Configuration
+// @ConfigurationProperties(prefix = "spring.pulsar.client")
 public class PulsarClientProperties {
     private Map<String, Object> clientConfig = new HashMap<>(); // Default to an empty map
 }

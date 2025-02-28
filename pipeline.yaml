@@ -10,7 +10,7 @@ spec:
       source:
         udsource: 
           container: 
-            image: quay.io/numaio/numaflow-rs/simple-source:stable
+            image: apache-pulsar-java:v0.3.0
        
     - name: cat
       scale:

@@ -26,7 +26,7 @@ import lombok.extern.slf4j.Slf4j;
  * application context.
  */
 @Slf4j
-@Configuration
+// @Configuration
 public class PulsarConfig {
     @Autowired
     private Environment env;
