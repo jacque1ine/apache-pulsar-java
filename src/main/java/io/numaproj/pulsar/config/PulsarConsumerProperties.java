@@ -11,7 +11,7 @@ import java.util.Map;
 @Getter
 @Setter
 @Configuration
-@ConfigurationProperties(prefix = "spring.pulsar.client")
-public class PulsarClientProperties {
-    private Map<String, Object> clientConfig = new HashMap<>(); // Default to an empty map
+@ConfigurationProperties(prefix = "spring.pulsar.consumer")
+public class PulsarConsumerProperties {
+    private Map<String, Object> consumerConfig = new HashMap<>(); // Default to an empty map
 }

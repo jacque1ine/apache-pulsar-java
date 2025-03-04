@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @Slf4j
-// @Component
+@Component
 public class PulsarSink extends Sinker {
 
     @Autowired
