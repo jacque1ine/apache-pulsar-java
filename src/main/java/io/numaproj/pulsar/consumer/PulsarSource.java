@@ -1,6 +1,5 @@
 package io.numaproj.pulsar.consumer;
 
-import com.google.common.primitives.Longs;
 import io.numaproj.numaflow.sourcer.AckRequest;
 import io.numaproj.numaflow.sourcer.Message;
 import io.numaproj.numaflow.sourcer.Offset;
@@ -23,25 +22,28 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Slf4j
 @Component
 @ConditionalOnProperty(prefix = "spring.pulsar.consumer", name = "enabled", havingValue = "true")
 public class PulsarSource extends Sourcer {
 
-    // Mapping of readIndex to Pulsar messages that haven't yet been acknowledged
+    // Mapping of readIndex to Pulsar messages that haven't yet been acknowledged.
     private final Map<String, org.apache.pulsar.client.api.Message<byte[]>> messages = new ConcurrentHashMap<>();
     private Server server;
 
     @Autowired
     private PulsarClient pulsarClient;
 
-    // Consumer for Pulsar messages on hardcoded topic "demo-t"
+    // Consumer for Pulsar messages on the hardcoded topic "demo-t".
     private Consumer<byte[]> pulsarConsumer;
 
-    @PostConstruct // starts server automatically when the Spring context initializes
+    @PostConstruct // starts server automatically when the Spring context initializes.
     public void startServer() throws Exception {
         // Create and start Pulsar consumer using the autowired PulsarClient.
         pulsarConsumer = pulsarClient.newConsumer(Schema.BYTES)
@@ -62,27 +64,29 @@ public class PulsarSource extends Sourcer {
             return;
         }
         try {
-            // Use batchReceive without timeout parameters as the API does not support them.
-            Messages<byte[]> batch = pulsarConsumer.batchReceive();
+            // Use asynchronous batch receive and wait synchronously using the timeout
+            // specified in the ReadRequest.
+            Messages<byte[]> batch = pulsarConsumer.batchReceiveAsync()
+                    .get(request.getTimeout().toMillis(), TimeUnit.MILLISECONDS);
             if (batch == null || batch.size() == 0) {
-                // No messages received.
+                // No messages received within the timeout.
                 return;
             }
-
             int messagesRead = 0;
-            // Process messages up to the specified count.
+            // Process up to the specified count of messages in the batch.
             for (org.apache.pulsar.client.api.Message<byte[]> pMsg : batch) {
                 if (messagesRead >= request.getCount()) {
                     break;
                 }
-                // Log the consumed message (converting byte[] to String for clarity)
+
+                // Log the consumed message (converting byte[] to String for clarity).
                 log.info("Consumed Pulsar message: {}", new String(pMsg.getValue(), StandardCharsets.UTF_8));
 
                 // Convert the Pulsar MessageId to a byte array using its String representation.
                 byte[] offsetBytes = pMsg.getMessageId().toString().getBytes(StandardCharsets.UTF_8);
                 Offset offset = new Offset(offsetBytes);
 
-                // Create a header map with Pulsar message id detail.
+                // Create a header map containing the Pulsar message id detail.
                 Map<String, String> headers = new HashMap<>();
                 headers.put("pulsarMessageId", pMsg.getMessageId().toString());
 
@@ -97,8 +101,14 @@ public class PulsarSource extends Sourcer {
 
                 messagesRead++;
             }
-        } catch (PulsarClientException e) {
-            log.error("Failed to receive batch from Pulsar", e);
+        } catch (TimeoutException toe) {
+            // Timeout reached without receiving a complete batch.
+            log.info("Batch receive timed out after {} milliseconds", request.getTimeout().toMillis());
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            log.error("Thread interrupted while waiting for batch receive", ie);
+        } catch (ExecutionException ee) {
+            log.error("Failed to receive batch from Pulsar", ee.getCause());
         }
     }
 
@@ -106,13 +116,13 @@ public class PulsarSource extends Sourcer {
     public void ack(AckRequest request) {
         // Iterate over provided offsets and acknowledge the corresponding Pulsar message.
         request.getOffsets().forEach(offset -> {
-            // Convert the offset bytes back to String to get the Pulsar MessageId string.
+            // Convert the offset bytes back to a String to obtain the Pulsar MessageId.
             String messageIdKey = new String(offset.getValue(), StandardCharsets.UTF_8);
             org.apache.pulsar.client.api.Message<byte[]> pMsg = messages.get(messageIdKey);
             if (pMsg != null) {
                 try {
                     pulsarConsumer.acknowledge(pMsg);
-                    // Log both the MessageId and payload using UTF-8 conversion for the byte array.
+                    // Log both the MessageId and payload, converting the byte[] to String for clarity.
                     log.info("Acknowledged Pulsar message with ID: {} and payload: {}",
                             pMsg.getMessageId().toString(), new String(pMsg.getValue(), StandardCharsets.UTF_8));
                 } catch (PulsarClientException e) {
@@ -126,13 +136,13 @@ public class PulsarSource extends Sourcer {
 
     @Override
     public long getPending() {
-        // Number of messages not yet acknowledged.
+        // Return the number of messages that have not yet been acknowledged.
         return messages.size();
     }
 
     @Override
     public List<Integer> getPartitions() {
-        // Fallback mechanism: a single partition based on your pod replica index.
+        // Fallback mechanism: a single partition based on the pod replica index.
         return Sourcer.defaultPartitions();
     }
 }
