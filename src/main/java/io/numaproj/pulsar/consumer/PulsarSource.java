@@ -8,6 +8,8 @@ import io.numaproj.numaflow.sourcer.ReadRequest;
 import io.numaproj.numaflow.sourcer.Server;
 import io.numaproj.numaflow.sourcer.Sourcer;
 import lombok.extern.slf4j.Slf4j;
+
+import org.apache.pulsar.client.api.BatchReceivePolicy;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Messages;
 import org.apache.pulsar.client.api.PulsarClient;
@@ -20,13 +22,12 @@ import org.springframework.stereotype.Component;
 import javax.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Map;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 @Slf4j
 @Component
@@ -46,9 +47,15 @@ public class PulsarSource extends Sourcer {
     @PostConstruct // starts server automatically when the Spring context initializes.
     public void startServer() throws Exception {
         // Create and start Pulsar consumer using the autowired PulsarClient.
+
+        BatchReceivePolicy batchReceivePolicy = BatchReceivePolicy.builder()
+                .timeout(5000, TimeUnit.MILLISECONDS)
+                .build();
+
         pulsarConsumer = pulsarClient.newConsumer(Schema.BYTES)
-                .topic("demo-t")
-                .subscriptionName("my-topic-subscription")
+                .topic("tester")
+                .subscriptionName("sub")
+                .batchReceivePolicy(batchReceivePolicy)
                 .subscribe();
 
         // Start the gRPC server for reading messages.
@@ -59,26 +66,46 @@ public class PulsarSource extends Sourcer {
 
     @Override
     public void read(ReadRequest request, OutputObserver observer) {
-        // Minimal check: if outstanding messages haven't been acknowledged, do nothing.
         if (!messages.isEmpty()) {
             return;
         }
-        try {
-            // Use asynchronous batch receive and wait synchronously using the timeout
-            // specified in the ReadRequest.
-            Messages<byte[]> batch = pulsarConsumer.batchReceiveAsync()
-                    .get(request.getTimeout().toMillis(), TimeUnit.MILLISECONDS);
-            if (batch == null || batch.size() == 0) {
-                // No messages received within the timeout.
+        int messagesRead = 0;
+        long overallTimeoutMillis = request.getTimeout().toMillis();
+        long deadline = System.currentTimeMillis() + overallTimeoutMillis;
+        // Loop until we have processed the requested count or run out of time.
+        while (messagesRead < request.getCount()) {
+            long iterationStart = System.currentTimeMillis();
+            long remainingTime = deadline - iterationStart;
+            if (remainingTime <= 0) {
+                log.info("Overall timeout reached before requested count was met.");
+                break;
+            }
+            List<org.apache.pulsar.client.api.Message<byte[]>> batchMsgs = new ArrayList<>();
+            try {
+                Messages<byte[]> msgs = pulsarConsumer.batchReceive();
+                if (msgs != null && msgs.size() > 0) {
+                    for (org.apache.pulsar.client.api.Message<byte[]> msg : msgs) {
+                        if (msg != null) {
+                            batchMsgs.add(msg);
+                        }
+                    }
+                }
+            } catch (PulsarClientException e) {
+                log.error("Error while consuming messages from Pulsar", e);
                 return;
             }
-            int messagesRead = 0;
-            // Process up to the specified count of messages in the batch.
-            for (org.apache.pulsar.client.api.Message<byte[]> pMsg : batch) {
+            // If no messages were received in this iteration, update remaining time and
+            // continue.
+            if (batchMsgs.isEmpty()) {
+                long elapsed = System.currentTimeMillis() - iterationStart;
+                deadline = deadline - elapsed;
+                continue;
+            }
+            // Process the messages in the batch.
+            for (org.apache.pulsar.client.api.Message<byte[]> pMsg : batchMsgs) {
                 if (messagesRead >= request.getCount()) {
                     break;
                 }
-
                 // Log the consumed message (converting byte[] to String for clarity).
                 log.info("Consumed Pulsar message: {}", new String(pMsg.getValue(), StandardCharsets.UTF_8));
 
@@ -101,20 +128,17 @@ public class PulsarSource extends Sourcer {
 
                 messagesRead++;
             }
-        } catch (TimeoutException toe) {
-            // Timeout reached without receiving a complete batch.
-            log.info("Batch receive timed out after {} milliseconds", request.getTimeout().toMillis());
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            log.error("Thread interrupted while waiting for batch receive", ie);
-        } catch (ExecutionException ee) {
-            log.error("Failed to receive batch from Pulsar", ee.getCause());
+            long iterationElapsed = System.currentTimeMillis() - iterationStart;
+            // Update deadline by reducing the elapsed time.
+            deadline -= iterationElapsed;
         }
+        log.debug("Read request count:{} number of messages sent:{}", request.getCount(), messagesRead);
     }
 
     @Override
     public void ack(AckRequest request) {
-        // Iterate over provided offsets and acknowledge the corresponding Pulsar message.
+        // Iterate over provided offsets and acknowledge the corresponding Pulsar
+        // message.
         request.getOffsets().forEach(offset -> {
             // Convert the offset bytes back to a String to obtain the Pulsar MessageId.
             String messageIdKey = new String(offset.getValue(), StandardCharsets.UTF_8);
@@ -122,7 +146,8 @@ public class PulsarSource extends Sourcer {
             if (pMsg != null) {
                 try {
                     pulsarConsumer.acknowledge(pMsg);
-                    // Log both the MessageId and payload, converting the byte[] to String for clarity.
+                    // Log both the MessageId and payload, converting the byte[] to String for
+                    // clarity.
                     log.info("Acknowledged Pulsar message with ID: {} and payload: {}",
                             pMsg.getMessageId().toString(), new String(pMsg.getValue(), StandardCharsets.UTF_8));
                 } catch (PulsarClientException e) {
