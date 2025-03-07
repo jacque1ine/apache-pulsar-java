@@ -5,8 +5,11 @@ metadata:
 spec:
   limits: 
     readBatchSize: 10
+    readTimeout: 1s
   vertices:
     - name: in
+      scale:
+        min: 1
       volumes: # Shared between containers that are part of the same pod, useful for sharing configurations
         - name: pulsar-config-volume
           configMap:

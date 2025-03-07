@@ -7,6 +7,7 @@ import io.numaproj.numaflow.sourcer.OutputObserver;
 import io.numaproj.numaflow.sourcer.ReadRequest;
 import io.numaproj.numaflow.sourcer.Server;
 import io.numaproj.numaflow.sourcer.Sourcer;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 
 import org.apache.pulsar.client.api.BatchReceivePolicy;
@@ -27,7 +28,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
+
 
 @Slf4j
 @Component
@@ -39,25 +40,10 @@ public class PulsarSource extends Sourcer {
     private Server server;
 
     @Autowired
-    private PulsarClient pulsarClient;
-
-    // Consumer for Pulsar messages on the hardcoded topic "demo-t".
     private Consumer<byte[]> pulsarConsumer;
 
     @PostConstruct // starts server automatically when the Spring context initializes.
     public void startServer() throws Exception {
-        // Create and start Pulsar consumer using the autowired PulsarClient.
-
-        BatchReceivePolicy batchReceivePolicy = BatchReceivePolicy.builder()
-                .timeout(5000, TimeUnit.MILLISECONDS)
-                .build();
-
-        pulsarConsumer = pulsarClient.newConsumer(Schema.BYTES)
-                .topic("tester")
-                .subscriptionName("sub")
-                .batchReceivePolicy(batchReceivePolicy)
-                .subscribe();
-
         // Start the gRPC server for reading messages.
         server = new Server(this);
         server.start();
@@ -66,9 +52,7 @@ public class PulsarSource extends Sourcer {
 
     @Override
     public void read(ReadRequest request, OutputObserver observer) {
-        if (!messages.isEmpty()) {
-            return;
-        }
+        // Removed early return when messages map is not empty so that new messages will be processed.
         int messagesRead = 0;
         long overallTimeoutMillis = request.getTimeout().toMillis();
         long deadline = System.currentTimeMillis() + overallTimeoutMillis;
@@ -93,13 +77,6 @@ public class PulsarSource extends Sourcer {
             } catch (PulsarClientException e) {
                 log.error("Error while consuming messages from Pulsar", e);
                 return;
-            }
-            // If no messages were received in this iteration, update remaining time and
-            // continue.
-            if (batchMsgs.isEmpty()) {
-                long elapsed = System.currentTimeMillis() - iterationStart;
-                deadline = deadline - elapsed;
-                continue;
             }
             // Process the messages in the batch.
             for (org.apache.pulsar.client.api.Message<byte[]> pMsg : batchMsgs) {
@@ -128,17 +105,14 @@ public class PulsarSource extends Sourcer {
 
                 messagesRead++;
             }
-            long iterationElapsed = System.currentTimeMillis() - iterationStart;
-            // Update deadline by reducing the elapsed time.
-            deadline -= iterationElapsed;
+            // No need to update deadline here; the deadline remains a fixed point in time.
         }
         log.debug("Read request count:{} number of messages sent:{}", request.getCount(), messagesRead);
     }
 
     @Override
     public void ack(AckRequest request) {
-        // Iterate over provided offsets and acknowledge the corresponding Pulsar
-        // message.
+        // Iterate over provided offsets and acknowledge the corresponding Pulsar message.
         request.getOffsets().forEach(offset -> {
             // Convert the offset bytes back to a String to obtain the Pulsar MessageId.
             String messageIdKey = new String(offset.getValue(), StandardCharsets.UTF_8);
@@ -146,8 +120,7 @@ public class PulsarSource extends Sourcer {
             if (pMsg != null) {
                 try {
                     pulsarConsumer.acknowledge(pMsg);
-                    // Log both the MessageId and payload, converting the byte[] to String for
-                    // clarity.
+                    // Log both the MessageId and payload, converting the byte[] to String for clarity.
                     log.info("Acknowledged Pulsar message with ID: {} and payload: {}",
                             pMsg.getMessageId().toString(), new String(pMsg.getValue(), StandardCharsets.UTF_8));
                 } catch (PulsarClientException e) {
@@ -169,5 +142,27 @@ public class PulsarSource extends Sourcer {
     public List<Integer> getPartitions() {
         // Fallback mechanism: a single partition based on the pod replica index.
         return Sourcer.defaultPartitions();
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        log.info("Shutting down PulsarSource...");
+        if (server != null) {
+            try {
+                // Assuming the Server class has a stop() or similar cleanup method.
+                server.stop();
+                log.info("GRPC server stopped.");
+            } catch (Exception e) {
+                log.error("Error while stopping the gRPC server", e);
+            }
+        }
+        if (pulsarConsumer != null) {
+            try {
+                pulsarConsumer.close();
+                log.info("Pulsar consumer closed.");
+            } catch (PulsarClientException e) {
+                log.error("Error while closing Pulsar consumer", e);
+            }
+        }
     }
 }
