@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Messages;
+import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminException;
@@ -41,7 +42,7 @@ public class PulsarSource extends Sourcer {
     private Server server;
 
     @Autowired
-    private PulsarConsumerManager pulsarConsumerManager;
+    private Consumer<byte[]> consumer;
 
     @Autowired
     private PulsarAdmin pulsarAdmin;
@@ -63,13 +64,7 @@ public class PulsarSource extends Sourcer {
             log.trace("messagesToAck not empty: {}", messagesToAck);
             return;
         }
-
-        Consumer<byte[]> consumer = null;
-
         try {
-            // Obtain a consumer with the desired settings.
-            consumer = pulsarConsumerManager.getOrCreateConsumer(request.getCount(), request.getTimeout().toMillis());
-
             Messages<byte[]> batchMessages = consumer.batchReceive();
 
             if (batchMessages == null || batchMessages.size() == 0) {
@@ -121,7 +116,6 @@ public class PulsarSource extends Sourcer {
             org.apache.pulsar.client.api.Message<byte[]> pMsg = messagesToAck.get(messageIdKey);
             if (pMsg != null) {
                 try {
-                    Consumer<byte[]> consumer = pulsarConsumerManager.getOrCreateConsumer(0, 0);
                     consumer.acknowledge(pMsg);
                     log.info("Acknowledged Pulsar message with ID: {} and payload: {}",
                             messageIdKey, new String(pMsg.getValue(), StandardCharsets.UTF_8));

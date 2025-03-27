@@ -89,7 +89,7 @@
                             </container>
                             <to>
                                 <image>
-                                    apache-pulsar-java:v0.3.0
+                                    apache-pulsar-java:v0.4.0
                                 </image>
                             </to>
                         </configuration>
