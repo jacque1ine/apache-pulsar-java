@@ -57,10 +57,15 @@ public class PulsarSource extends Sourcer {
         server.awaitTermination();
     }
 
-    private int count;
+    private int count = 0;
 
     @Override
     public void read(ReadRequest request, OutputObserver observer) {
+        if (count == 0) {
+            log.info("STARTTIME IS {} ", Instant.now());
+        }
+        count++;
+
         // If there are messages not acknowledged, return
         if (!messagesToAck.isEmpty()) {
             log.trace("messagesToAck not empty: {}", messagesToAck);
@@ -77,9 +82,7 @@ public class PulsarSource extends Sourcer {
             // Process each message in the batch.
             for (org.apache.pulsar.client.api.Message<byte[]> pMsg : batchMessages) {
                 String msgId = pMsg.getMessageId().toString();
-                log.info("Consumed Pulsar message [id: {}]: {}", pMsg.getMessageId(),
-                        new String(pMsg.getValue(), StandardCharsets.UTF_8));
-
+  
                 byte[] offsetBytes = msgId.getBytes(StandardCharsets.UTF_8);
                 Offset offset = new Offset(offsetBytes);
 
@@ -87,6 +90,10 @@ public class PulsarSource extends Sourcer {
                 observer.send(message);
 
                 messagesToAck.put(msgId, pMsg);
+
+            }
+            if (count == 100000) {
+                log.info("ENDTIME IS {} ", Instant.now());
             }
         } catch (PulsarClientException e) {
             log.error("Failed to get consumer or receive messages from Pulsar", e);
@@ -119,8 +126,6 @@ public class PulsarSource extends Sourcer {
             if (pMsg != null) {
                 try {
                     consumer.acknowledge(pMsg);
-                    log.info("Acknowledged Pulsar message with ID: {} and payload: {}",
-                            messageIdKey, new String(pMsg.getValue(), StandardCharsets.UTF_8));
                 } catch (PulsarClientException e) {
                     log.error("Failed to acknowledge Pulsar message", e);
                 }
