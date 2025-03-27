@@ -49,6 +49,8 @@ public class PulsarSource extends Sourcer {
     @Autowired
     PulsarConsumerProperties pulsarConsumerProperties;
 
+    private int count = 0;
+
     @PostConstruct
     public void startServer() throws Exception {
         server = new Server(this);
@@ -63,6 +65,11 @@ public class PulsarSource extends Sourcer {
             log.trace("messagesToAck not empty: {}", messagesToAck);
             return;
         }
+
+        if (count == 0) {
+            log.info("STARTTIME IS {} ", Instant.now());
+        }
+        count++;
 
         Consumer<byte[]> consumer = null;
 
@@ -90,6 +97,9 @@ public class PulsarSource extends Sourcer {
                 observer.send(message);
 
                 messagesToAck.put(msgId, pMsg);
+            }
+            if (count == 100000) {
+                log.info("ENDTIME IS {} ", Instant.now());
             }
         } catch (PulsarClientException e) {
             log.error("Failed to get consumer or receive messages from Pulsar", e);
