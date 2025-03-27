@@ -87,8 +87,7 @@ public class PulsarSource extends Sourcer {
             // Process each message in the batch.
             for (org.apache.pulsar.client.api.Message<byte[]> pMsg : batchMessages) {
                 String msgId = pMsg.getMessageId().toString();
-                log.info("Consumed Pulsar message [id: {}]: {}", pMsg.getMessageId(),
-                        new String(pMsg.getValue(), StandardCharsets.UTF_8));
+
 
                 byte[] offsetBytes = msgId.getBytes(StandardCharsets.UTF_8);
                 Offset offset = new Offset(offsetBytes);
@@ -133,8 +132,7 @@ public class PulsarSource extends Sourcer {
                 try {
                     Consumer<byte[]> consumer = pulsarConsumerManager.getOrCreateConsumer(0, 0);
                     consumer.acknowledge(pMsg);
-                    log.info("Acknowledged Pulsar message with ID: {} and payload: {}",
-                            messageIdKey, new String(pMsg.getValue(), StandardCharsets.UTF_8));
+
                 } catch (PulsarClientException e) {
                     log.error("Failed to acknowledge Pulsar message", e);
                 }
