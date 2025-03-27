@@ -14,7 +14,7 @@ data:
         consumer: 
           enabled: true
           consumerConfig: 
-            topicNames: "test"
+            topicNames: "load_test"
             subscriptionName: "sub-1"
         admin: 
           adminConfig: # Accepts the same key-value pair configurations as pulsar client: https://pulsar.apache.org/reference/#/4.0.x/client/client-configuration-client

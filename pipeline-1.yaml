@@ -1,10 +1,10 @@
 apiVersion: numaflow.numaproj.io/v1alpha1
 kind: Pipeline
 metadata:
-  name: pipeline-0.3.0
+  name: pipeline-one
 spec:
   limits: 
-    readBatchSize: 3000
+    readBatchSize: 1
     readTimeout: "30s"
   vertices:
     - name: in
@@ -21,7 +21,7 @@ spec:
       source:
         udsource: 
           container:
-            image: apache-pulsar-java:v0.4.0
+            image: apache-pulsar-java:v0.3.0
             args: [ "--spring.config.location=file:/conf/application.yml" ] # Use external configuration file 
             imagePullPolicy: Never
             volumeMounts:

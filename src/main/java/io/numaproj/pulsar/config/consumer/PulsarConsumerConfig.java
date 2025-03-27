@@ -22,8 +22,8 @@ public class PulsarConsumerConfig {
             throws Exception {
 
         BatchReceivePolicy batchPolicy = BatchReceivePolicy.builder()
-                .maxNumMessages(3000)
-                .timeout(30, TimeUnit.SECONDS) 
+                .maxNumMessages(1)
+                .timeout(30, TimeUnit.SECONDS)
                 .build();
 
         Consumer<byte[]> currentConsumer = pulsarClient.newConsumer(Schema.BYTES)

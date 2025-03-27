@@ -57,6 +57,8 @@ public class PulsarSource extends Sourcer {
         server.awaitTermination();
     }
 
+    private int count;
+
     @Override
     public void read(ReadRequest request, OutputObserver observer) {
         // If there are messages not acknowledged, return
