@@ -59,7 +59,9 @@ public class PulsarProducerConfigTest {
 
         mockProducer = mock(Producer.class);
 
-        when(mockClient.newProducer(Schema.BYTES)).thenReturn(mockProducerBuilder);
+        // UPDATED: Use any(Schema.class) matcher to avoid strict equality issues with
+        // AUTO_PRODUCE_BYTES()
+        when(mockClient.newProducer(any(Schema.class))).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.create()).thenReturn(mockProducer);
         when(mockProducerBuilder.loadConf(anyMap())).thenReturn(mockProducerBuilder);
     }
@@ -74,6 +76,7 @@ public class PulsarProducerConfigTest {
         mockProducer = null;
         mockEnvironment = null;
     }
+
     // Test to successfully create Producer bean with valid configuration properties
     @Test
     public void pulsarProducer_validConfig() throws Exception {
@@ -150,7 +153,7 @@ public class PulsarProducerConfigTest {
     public void pulsarProducer_NoEnvVariableFoundFallbackName() throws Exception {
         // Simulate NUMAFLOW_POD not being set by returning null
         when(mockEnvironment.getProperty(eq("NUMAFLOW_POD"), anyString()))
-            .thenAnswer(invocation -> invocation.getArgument(1));
+                .thenAnswer(invocation -> invocation.getArgument(1));
 
         Map<String, Object> emptyConfig = new HashMap<>();
         emptyConfig.put("topicName", "test-topic");
@@ -161,7 +164,7 @@ public class PulsarProducerConfigTest {
         assertNotNull(producer);
         ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass(Map.class);
         verify(mockProducerBuilder).loadConf(captor.capture());
-        
+
         String producerName = (String) captor.getValue().get("producerName");
         assertNotNull("Producer name should not be null", producerName);
         assertTrue("Producer name should start with 'pod-'", producerName.startsWith("pod-"));

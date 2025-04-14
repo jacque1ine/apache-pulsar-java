@@ -35,7 +35,7 @@ public class PulsarProducerConfig {
         }
         producerConfig.put(producerName, podName);
 
-        return pulsarClient.newProducer(Schema.BYTES)
+        return pulsarClient.newProducer(Schema.AUTO_PRODUCE_BYTES())
                 .loadConf(producerConfig)
                 .create();
     }
