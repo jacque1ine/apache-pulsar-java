@@ -20,6 +20,7 @@ import org.apache.pulsar.common.policies.data.SubscriptionStats;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
+import org.apache.pulsar.client.api.schema.GenericRecord;
 
 import javax.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
@@ -36,7 +37,7 @@ import java.util.Set;
 public class PulsarSource extends Sourcer {
 
     // Map tracking received messages (keyed by Pulsar message ID string)
-    private final Map<String, org.apache.pulsar.client.api.Message<byte[]>> messagesToAck = new HashMap<>();
+    private final Map<String, org.apache.pulsar.client.api.Message<GenericRecord>> messagesToAck = new HashMap<>();
 
     private Server server;
 
@@ -64,13 +65,13 @@ public class PulsarSource extends Sourcer {
             return;
         }
 
-        Consumer<byte[]> consumer = null;
+        Consumer<GenericRecord> consumer = null;
 
         try {
             // Obtain a consumer with the desired settings.
             consumer = pulsarConsumerManager.getOrCreateConsumer(request.getCount(), request.getTimeout().toMillis());
 
-            Messages<byte[]> batchMessages = consumer.batchReceive();
+            Messages<GenericRecord> batchMessages = consumer.batchReceive();
 
             if (batchMessages == null || batchMessages.size() == 0) {
                 log.trace("Received 0 messages, return early.");
@@ -78,15 +79,17 @@ public class PulsarSource extends Sourcer {
             }
 
             // Process each message in the batch.
-            for (org.apache.pulsar.client.api.Message<byte[]> pMsg : batchMessages) {
+            for (org.apache.pulsar.client.api.Message<GenericRecord> pMsg : batchMessages) {
                 String msgId = pMsg.getMessageId().toString();
+                byte[] messageValue = convertToBytes(pMsg.getValue());
+
                 log.info("Consumed Pulsar message [id: {}]: {}", pMsg.getMessageId(),
-                        new String(pMsg.getValue(), StandardCharsets.UTF_8));
+                        new String(messageValue, StandardCharsets.UTF_8));
 
                 byte[] offsetBytes = msgId.getBytes(StandardCharsets.UTF_8);
                 Offset offset = new Offset(offsetBytes);
 
-                Message message = new Message(pMsg.getValue(), offset, Instant.now());
+                Message message = new Message(messageValue, offset, Instant.now());
                 observer.send(message);
 
                 messagesToAck.put(msgId, pMsg);
@@ -95,6 +98,25 @@ public class PulsarSource extends Sourcer {
             log.error("Failed to get consumer or receive messages from Pulsar", e);
             throw new RuntimeException("Failed to get consumer or receive messages from Pulsar", e);
         }
+    }
+
+    /**
+     * Convert GenericRecord to byte array for downstream processing
+     */
+    private byte[] convertToBytes(GenericRecord record) {
+        if (record == null) {
+            return new byte[0];
+        }
+        // First try to get native object and convert if it's a byte array or string
+        Object nativeObject = record.getNativeObject();
+        if (nativeObject instanceof byte[]) {
+            return (byte[]) nativeObject;
+        } else if (nativeObject instanceof String) {
+            return ((String) nativeObject).getBytes(StandardCharsets.UTF_8);
+        }
+
+        // If not a simple type, convert the record to JSON string
+        return record.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     @Override
@@ -118,13 +140,14 @@ public class PulsarSource extends Sourcer {
         // If the check passed, process each ack request
         for (Map.Entry<String, Offset> entry : requestOffsetMap.entrySet()) {
             String messageIdKey = entry.getKey();
-            org.apache.pulsar.client.api.Message<byte[]> pMsg = messagesToAck.get(messageIdKey);
+            org.apache.pulsar.client.api.Message<GenericRecord> pMsg = messagesToAck.get(messageIdKey);
             if (pMsg != null) {
                 try {
-                    Consumer<byte[]> consumer = pulsarConsumerManager.getOrCreateConsumer(0, 0);
+                    Consumer<GenericRecord> consumer = pulsarConsumerManager.getOrCreateConsumer(0, 0);
                     consumer.acknowledge(pMsg);
+                    byte[] messageValue = convertToBytes(pMsg.getValue());
                     log.info("Acknowledged Pulsar message with ID: {} and payload: {}",
-                            messageIdKey, new String(pMsg.getValue(), StandardCharsets.UTF_8));
+                            messageIdKey, new String(messageValue, StandardCharsets.UTF_8));
                 } catch (PulsarClientException e) {
                     log.error("Failed to acknowledge Pulsar message", e);
                 }

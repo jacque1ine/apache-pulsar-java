@@ -15,6 +15,7 @@ import io.numaproj.pulsar.config.consumer.PulsarConsumerProperties;
 
 import javax.annotation.PreDestroy;
 import java.util.concurrent.TimeUnit;
+import org.apache.pulsar.client.api.schema.GenericRecord;
 
 /**
  * PulsarConsumerManager creates and maintains a single Consumer instance.
@@ -33,10 +34,10 @@ public class PulsarConsumerManager {
     private PulsarClient pulsarClient;
 
     // The current consumer instance.
-    private Consumer<byte[]> currentConsumer;
+    private Consumer<GenericRecord> currentConsumer;
 
     // Returns the current consumer if it exists. If not, creates a new one.
-    public Consumer<byte[]> getOrCreateConsumer(long count, long timeoutMillis)
+    public Consumer<GenericRecord> getOrCreateConsumer(long count, long timeoutMillis)
             throws PulsarClientException {
         if (currentConsumer != null) {
             return currentConsumer;
@@ -48,7 +49,7 @@ public class PulsarConsumerManager {
                                                                      // than 2^63 - 1 which will cause an overflow
                 .build();
 
-        currentConsumer = pulsarClient.newConsumer(Schema.BYTES)
+        currentConsumer = pulsarClient.newConsumer(Schema.AUTO_CONSUME())
                 .loadConf(pulsarConsumerProperties.getConsumerConfig())
                 .batchReceivePolicy(batchPolicy)
                 .subscriptionType(SubscriptionType.Shared) // Must be shared to support multiple pods
@@ -76,8 +77,6 @@ public class PulsarConsumerManager {
             } catch (PulsarClientException e) {
                 log.error("Error while closing the Pulsar client in cleanup", e);
             }
-
         }
-
     }
 }
