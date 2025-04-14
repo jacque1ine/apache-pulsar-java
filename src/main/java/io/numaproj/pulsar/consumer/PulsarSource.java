@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Messages;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.common.policies.data.TopicStats;
@@ -36,7 +37,7 @@ import java.util.Set;
 public class PulsarSource extends Sourcer {
 
     // Map tracking received messages (keyed by Pulsar message ID string)
-    private final Map<String, org.apache.pulsar.client.api.Message<byte[]>> messagesToAck = new HashMap<>();
+    private final Map<String, org.apache.pulsar.client.api.Message<GenericRecord>> messagesToAck = new HashMap<>();
 
     private Server server;
 
@@ -64,13 +65,13 @@ public class PulsarSource extends Sourcer {
             return;
         }
 
-        Consumer<byte[]> consumer = null;
+        Consumer<GenericRecord> consumer = null;
 
         try {
             // Obtain a consumer with the desired settings.
             consumer = pulsarConsumerManager.getOrCreateConsumer(request.getCount(), request.getTimeout().toMillis());
 
-            Messages<byte[]> batchMessages = consumer.batchReceive();
+            Messages<GenericRecord> batchMessages = consumer.batchReceive();
 
             if (batchMessages == null || batchMessages.size() == 0) {
                 log.trace("Received 0 messages, return early.");
@@ -78,15 +79,50 @@ public class PulsarSource extends Sourcer {
             }
 
             // Process each message in the batch.
-            for (org.apache.pulsar.client.api.Message<byte[]> pMsg : batchMessages) {
+            for (org.apache.pulsar.client.api.Message<GenericRecord> pMsg : batchMessages) {
                 String msgId = pMsg.getMessageId().toString();
-                log.info("Consumed Pulsar message [id: {}]: {}", pMsg.getMessageId(),
-                        new String(pMsg.getValue(), StandardCharsets.UTF_8));
+                GenericRecord record = pMsg.getValue();
+
+                // Log the message ID and a summary of the record's fields
+                log.info("Consumed Pulsar message [id: {}]: GenericRecord with {} fields",
+                        pMsg.getMessageId(), record.getFields().size());
+
+                // Convert GenericRecord to byte array for numaflow
+                byte[] messageData;
+
+                // Serialize field names and values as JSON
+                StringBuilder sb = new StringBuilder("{");
+                record.getFields().forEach(field -> {
+                    Object value = record.getField(field);
+                    sb.append("\"").append(field.getName()).append("\":");
+
+                    // Handle nested GenericRecord objects
+                    if (value instanceof GenericRecord) {
+                        sb.append(serializeGenericRecord((GenericRecord) value));
+                    } else {
+                        // For primitive values, add quotes for strings
+                        if (value instanceof String) {
+                            sb.append("\"").append(value).append("\"");
+                        } else {
+                            // For numbers, booleans, etc., don't add quotes
+                            sb.append(value != null ? value.toString() : "null");
+                        }
+                    }
+                    sb.append(",");
+                });
+                if (record.getFields().size() > 0) {
+                    sb.deleteCharAt(sb.length() - 1); // Remove last comma
+                }
+                sb.append("}");
+                messageData = sb.toString().getBytes(StandardCharsets.UTF_8);
+
+                // Log the entire message as byte array
+                log.info("Message byte array [id: {}]: {}", msgId, new String(messageData, StandardCharsets.UTF_8));
 
                 byte[] offsetBytes = msgId.getBytes(StandardCharsets.UTF_8);
                 Offset offset = new Offset(offsetBytes);
 
-                Message message = new Message(pMsg.getValue(), offset, Instant.now());
+                Message message = new Message(messageData, offset, Instant.now());
                 observer.send(message);
 
                 messagesToAck.put(msgId, pMsg);
@@ -118,13 +154,12 @@ public class PulsarSource extends Sourcer {
         // If the check passed, process each ack request
         for (Map.Entry<String, Offset> entry : requestOffsetMap.entrySet()) {
             String messageIdKey = entry.getKey();
-            org.apache.pulsar.client.api.Message<byte[]> pMsg = messagesToAck.get(messageIdKey);
+            org.apache.pulsar.client.api.Message<GenericRecord> pMsg = messagesToAck.get(messageIdKey);
             if (pMsg != null) {
                 try {
-                    Consumer<byte[]> consumer = pulsarConsumerManager.getOrCreateConsumer(0, 0);
+                    Consumer<GenericRecord> consumer = pulsarConsumerManager.getOrCreateConsumer(0, 0);
                     consumer.acknowledge(pMsg);
-                    log.info("Acknowledged Pulsar message with ID: {} and payload: {}",
-                            messageIdKey, new String(pMsg.getValue(), StandardCharsets.UTF_8));
+                    log.info("Acknowledged Pulsar message with ID: {}", messageIdKey);
                 } catch (PulsarClientException e) {
                     log.error("Failed to acknowledge Pulsar message", e);
                 }
@@ -212,4 +247,57 @@ public class PulsarSource extends Sourcer {
         }
     }
 
+    private String serializeGenericRecord(GenericRecord record) {
+        StringBuilder sb = new StringBuilder("{");
+        List<org.apache.pulsar.client.api.schema.Field> fields = record.getFields();
+        
+        for (int i = 0; i < fields.size(); i++) {
+            org.apache.pulsar.client.api.schema.Field field = fields.get(i);
+            Object value = record.getField(field);
+            
+            // Append field name
+            sb.append("\"").append(field.getName()).append("\":");
+            
+            // Serialize the value based on its type
+            if (value == null) {
+                sb.append("null");
+            } else if (value instanceof GenericRecord) {
+                // Handle nested GenericRecord recursively
+                sb.append(serializeGenericRecord((GenericRecord) value));
+            } else if (value instanceof String) {
+                // Escape special characters in strings
+                sb.append("\"").append(
+                    value.toString()
+                        .replace("\\", "\\\\")
+                        .replace("\"", "\\\"")
+                        .replace("\n", "\\n")
+                        .replace("\r", "\\r")
+                        .replace("\t", "\\t")
+                ).append("\"");
+            } else if (value instanceof Number) {
+                // Handle numbers - preserve full precision for Long values
+                if (value instanceof Long) {
+                    sb.append(((Long) value).toString());
+                } else {
+                    sb.append(value.toString());
+                }
+            } else if (value instanceof Boolean) {
+                sb.append(value.toString());
+            } else if (value instanceof byte[]) {
+                // Encode binary data as Base64
+                sb.append("\"").append(java.util.Base64.getEncoder().encodeToString((byte[]) value)).append("\"");
+            } else {
+                // Default fallback for other types
+                sb.append("\"").append(value.toString()).append("\"");
+            }
+            
+            // Add comma if not the last field
+            if (i < fields.size() - 1) {
+                sb.append(",");
+            }
+        }
+        
+        sb.append("}");
+        return sb.toString();
+    }
 }

@@ -15,6 +15,7 @@ import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Messages;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.apache.pulsar.common.partition.PartitionedTopicMetadata;
 import org.apache.pulsar.common.policies.data.PartitionedTopicStats;
 import org.apache.pulsar.common.policies.data.SubscriptionStats;
@@ -49,7 +50,7 @@ public class PulsarSourceTest {
 
     private PulsarSource pulsarSource;
     private PulsarConsumerManager consumerManagerMock;
-    private Consumer<byte[]> consumerMock;
+    private Consumer<GenericRecord> consumerMock;
 
     @Before
     public void setUp() {
@@ -82,11 +83,11 @@ public class PulsarSourceTest {
             // We simulate that there is already one message waiting for ack.
             String dummyMsgId = "dummyMsgId";
             @SuppressWarnings("unchecked")
-            java.util.Map<String, org.apache.pulsar.client.api.Message<byte[]>> messagesToAck = (java.util.Map<String, org.apache.pulsar.client.api.Message<byte[]>>) ReflectionTestUtils
+            java.util.Map<String, org.apache.pulsar.client.api.Message<GenericRecord>> messagesToAck = (java.util.Map<String, org.apache.pulsar.client.api.Message<GenericRecord>>) ReflectionTestUtils
                     .getField(pulsarSource, "messagesToAck");
             // Create a dummy Pulsar message and add it to the map.
             @SuppressWarnings("unchecked")
-            org.apache.pulsar.client.api.Message<byte[]> dummyMessage = mock(
+            org.apache.pulsar.client.api.Message<GenericRecord> dummyMessage = mock(
                     org.apache.pulsar.client.api.Message.class);
             when(dummyMessage.getMessageId()).thenReturn(mock(MessageId.class));
             messagesToAck.put(dummyMsgId, dummyMessage);
@@ -153,23 +154,44 @@ public class PulsarSourceTest {
             messagesToAck.clear();
 
             // Setup a fake batch of messages
-            org.apache.pulsar.client.api.Message<byte[]> msg1 = mock(org.apache.pulsar.client.api.Message.class);
-            org.apache.pulsar.client.api.Message<byte[]> msg2 = mock(org.apache.pulsar.client.api.Message.class);
+            org.apache.pulsar.client.api.Message<GenericRecord> msg1 = mock(org.apache.pulsar.client.api.Message.class);
+            org.apache.pulsar.client.api.Message<GenericRecord> msg2 = mock(org.apache.pulsar.client.api.Message.class);
 
-            // Stub message ids and values.
+            // Stub message ids
             MessageId msgId1 = mock(MessageId.class);
             MessageId msgId2 = mock(MessageId.class);
             when(msgId1.toString()).thenReturn("msg1");
             when(msgId2.toString()).thenReturn("msg2");
             when(msg1.getMessageId()).thenReturn(msgId1);
             when(msg2.getMessageId()).thenReturn(msgId2);
-            when(msg1.getValue()).thenReturn("Hello".getBytes(StandardCharsets.UTF_8));
-            when(msg2.getValue()).thenReturn("World".getBytes(StandardCharsets.UTF_8));
 
-            // Create a fake Messages<byte[]> object
-            Messages<byte[]> messages = mock(Messages.class);
+            // Create mock GenericRecord objects
+            GenericRecord record1 = mock(GenericRecord.class);
+            GenericRecord record2 = mock(GenericRecord.class);
+
+            // Setup fields for the records
+            List<org.apache.pulsar.client.api.schema.Field> fields1 = List.of(mock(org.apache.pulsar.client.api.schema.Field.class));
+            List<org.apache.pulsar.client.api.schema.Field> fields2 = List.of(mock(org.apache.pulsar.client.api.schema.Field.class));
+            when(fields1.get(0).getName()).thenReturn("content");
+            when(fields2.get(0).getName()).thenReturn("content");
+
+            when(record1.getFields()).thenReturn(fields1);
+            when(record2.getFields()).thenReturn(fields2);
+
+            when(record1.getField("content")).thenReturn("Hello");
+            when(record2.getField("content")).thenReturn("World");
+
+            when(record1.getField(fields1.get(0))).thenReturn("Hello");
+            when(record2.getField(fields2.get(0))).thenReturn("World");
+
+            // Assign records to messages
+            when(msg1.getValue()).thenReturn(record1);
+            when(msg2.getValue()).thenReturn(record2);
+
+            // Create a fake Messages<GenericRecord> object
+            Messages<GenericRecord> messages = mock(Messages.class);
             when(messages.size()).thenReturn(2);
-            java.util.List<org.apache.pulsar.client.api.Message<byte[]>> messageList = Arrays.asList(msg1, msg2);
+            java.util.List<org.apache.pulsar.client.api.Message<GenericRecord>> messageList = Arrays.asList(msg1, msg2);
             when(messages.iterator()).thenReturn(messageList.iterator());
 
             // Stub consumerManager and consumer behavior.
@@ -189,9 +211,14 @@ public class PulsarSourceTest {
             verify(observer, times(2)).send(messageCaptor.capture());
             java.util.List<Message> sentMessages = messageCaptor.getAllValues();
             assertEquals(2, sentMessages.size());
-            // Validate contents of messages using getValue().
-            assertEquals("Hello", new String(sentMessages.get(0).getValue(), StandardCharsets.UTF_8));
-            assertEquals("World", new String(sentMessages.get(1).getValue(), StandardCharsets.UTF_8));
+            // Check that the JSON-like serialization was performed correctly
+            String msg1Content = new String(sentMessages.get(0).getValue(), StandardCharsets.UTF_8);
+            String msg2Content = new String(sentMessages.get(1).getValue(), StandardCharsets.UTF_8);
+
+            assertTrue(msg1Content.contains("content"));
+            assertTrue(msg1Content.contains("Hello"));
+            assertTrue(msg2Content.contains("content"));
+            assertTrue(msg2Content.contains("World"));
 
             // Confirm messages are tracked for ack.
             // The keys should be "msg1" and "msg2"
@@ -211,15 +238,24 @@ public class PulsarSourceTest {
     public void ackSuccessful() {
         try {
             // Create a dummy message to acknowledge.
-            org.apache.pulsar.client.api.Message<byte[]> msg = mock(org.apache.pulsar.client.api.Message.class);
+            org.apache.pulsar.client.api.Message<GenericRecord> msg = mock(org.apache.pulsar.client.api.Message.class);
             MessageId msgId = mock(MessageId.class);
             when(msgId.toString()).thenReturn("ackMsg");
             when(msg.getMessageId()).thenReturn(msgId);
-            when(msg.getValue()).thenReturn("AckPayload".getBytes(StandardCharsets.UTF_8));
+
+            // Create mock GenericRecord
+            GenericRecord record = mock(GenericRecord.class);
+            List<org.apache.pulsar.client.api.schema.Field> fields = List.of(mock(org.apache.pulsar.client.api.schema.Field.class));
+            when(fields.get(0).getName()).thenReturn("content");
+            when(record.getFields()).thenReturn(fields);
+            when(record.getField("content")).thenReturn("AckPayload");
+            when(record.getField(fields.get(0))).thenReturn("AckPayload");
+
+            when(msg.getValue()).thenReturn(record);
 
             // Insert the dummy message into the messagesToAck map.
             @SuppressWarnings("unchecked")
-            java.util.Map<String, org.apache.pulsar.client.api.Message<byte[]>> messagesToAck = (java.util.Map<String, org.apache.pulsar.client.api.Message<byte[]>>) ReflectionTestUtils
+            java.util.Map<String, org.apache.pulsar.client.api.Message<GenericRecord>> messagesToAck = (java.util.Map<String, org.apache.pulsar.client.api.Message<GenericRecord>>) ReflectionTestUtils
                     .getField(pulsarSource, "messagesToAck");
             messagesToAck.clear();
             messagesToAck.put("ackMsg", msg);
@@ -252,7 +288,7 @@ public class PulsarSourceTest {
     @Test
     public void ackNoMatchingMessage() throws PulsarClientException {
         // Ensure messagesToAck is empty.
-        java.util.Map<String, org.apache.pulsar.client.api.Message<byte[]>> messagesToAck = (java.util.Map<String, org.apache.pulsar.client.api.Message<byte[]>>) ReflectionTestUtils
+        java.util.Map<String, org.apache.pulsar.client.api.Message<GenericRecord>> messagesToAck = (java.util.Map<String, org.apache.pulsar.client.api.Message<GenericRecord>>) ReflectionTestUtils
                 .getField(pulsarSource, "messagesToAck");
         messagesToAck.clear();
 
