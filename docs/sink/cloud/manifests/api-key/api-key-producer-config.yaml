@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: byte-arr-producer-config
+  name: api-key-producer-config
 data:
   application.yml: |
     spring:

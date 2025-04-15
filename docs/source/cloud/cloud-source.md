@@ -2,7 +2,7 @@
 
 ### Introduction
 
-This document demonstrates how to use `apache-pulsar-java` to consume raw byte array messages from a topic.
+This document demonstrates how to use `apache-pulsar-java` to consume messages from a topic.
 
 
 ### Example
@@ -16,7 +16,7 @@ If you don't have a Pulsar cluster running, you can follow the instructions [her
 
 #### Configure the Pulsar consumer
 
-Use the example [ConfigMap](manifests/byte-arr-consumer-config.yaml) to configure the Pulsar source. Make sure that you have the consumer enabled. 
+Use the example [ConfigMap](manifests/api-key-consumer-config.yaml) to configure the Pulsar source. Make sure that you have the consumer enabled. 
 
 In the ConfigMap:
 
@@ -32,7 +32,7 @@ In the ConfigMap:
 
 #### Create the pipeline
 
-Use the example [pipeline](manifests/byte-arr-consumer-pipeline.yaml) to create the pipeline, using the ConfigMap created in
+Use the example [pipeline](manifests/api-key-consumer-pipeline.yaml) to create the pipeline, using the ConfigMap created in
 the previous step. Please make sure that the args list under the consumer vertex matches the file paths in the ConfigMap.
 
 #### Observe the messages

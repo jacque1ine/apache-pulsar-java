@@ -1,30 +1,24 @@
 apiVersion: numaflow.numaproj.io/v1alpha1
 kind: Pipeline
 metadata:
-  name: simp-pipe
+  name: api-key-producer-pipeline
 spec:
   vertices:
     - name: in
-      scale:
-        min: 1
       source:
         generator:
           rpu: 1
-          duration: 1s
+          duration: 10s
           msgSize: 10
     - name: p1
-      scale:
-        min: 1
       udf:
         builtin:
           name: cat
     - name: out
-      scale:
-        min: 1
       volumes: # Shared between containers that are part of the same pod, useful for sharing configurations
         - name: pulsar-config-volume
           configMap:
-            name: pulsar-config-map
+            name: api-key-producer-config
             items:
               - key: application.yml
                 path: application.yml

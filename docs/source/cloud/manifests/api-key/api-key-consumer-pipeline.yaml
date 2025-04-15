@@ -1,7 +1,7 @@
 apiVersion: numaflow.numaproj.io/v1alpha1
 kind: Pipeline
 metadata:
-  name: raw-consumer-pipeline
+  name: consumer-pipeline
 spec:
   limits: 
     readBatchSize: 1 # Change if you want a different batch size
@@ -12,7 +12,7 @@ spec:
       volumes: 
         - name: pulsar-config-volume
           configMap:
-            name: pulsar-config 
+            name: api-key-consumer-config
             items:
               - key: application.yml
                 path: application.yml
