@@ -12,7 +12,7 @@ spec:
       volumes: 
         - name: pulsar-config-volume
           configMap:
-            name: pulsar-config-two
+            name: consumer-config
             items:
               - key: application.yml
                 path: application.yml

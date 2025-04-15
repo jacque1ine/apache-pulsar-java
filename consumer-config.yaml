@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: pulsar-config-two
+  name: consumer-config
 data:
   application.yml: |
     spring:
