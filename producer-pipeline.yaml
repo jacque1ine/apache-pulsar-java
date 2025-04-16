@@ -11,7 +11,7 @@ spec:
         generator:
           rpu: 1
           duration: 1s
-          msgSize: 10
+          msgSize: 01
     - name: p1
       scale:
         min: 1
